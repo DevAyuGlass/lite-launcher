@@ -3,6 +3,7 @@
 
     <!-- Нужно, чтобы на Android 11+ видеть список всех приложений. Для сайдлоада ок. -->
     <uses-permission android:name="android.permission.QUERY_ALL_PACKAGES" />
+    <uses-permission android:name="android.permission.EXPAND_STATUS_BAR" />
 
     <application
         android:allowBackup="false"
