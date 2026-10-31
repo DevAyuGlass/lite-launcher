@@ -21,12 +21,38 @@ jobs:
           distribution: temurin
           java-version: "17"
 
-      # Gradle ставится самим экшеном, поэтому gradle-wrapper в репозитории не нужен
       - uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: "8.9"
 
-      # Если в Secrets задан свой ключ - подписываем им, иначе будет debug-ключ
+      # Шрифт Inter (лицензия OFL) скачивается при сборке, в репозитории его хранить не нужно.
+      # Если скачать не вышло, сборка не падает: лаунчер просто возьмёт системный шрифт.
+      - name: Fetch Inter font (best effort)
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set +e
+          F=app/src/main/assets/fonts
+          mkdir -p "$F" /tmp/inter /tmp/f
+          gh release download -R rsms/inter -p 'Inter-*.zip' -D /tmp/inter
+          Z=$(ls /tmp/inter/Inter-*.zip 2>/dev/null | head -1)
+          if [ -n "$Z" ]; then
+            unzip -q -j -o "$Z" "*Inter-Regular.otf" "*Inter-SemiBold.otf" "*Inter-Regular.ttf" "*Inter-SemiBold.ttf" "*InterVariable.ttf" "*LICENSE.txt" -d /tmp/f
+            pick() {
+              for ext in otf ttf; do
+                if [ -f "/tmp/f/$1.$ext" ]; then cp "/tmp/f/$1.$ext" "$F/$2.$ext"; return; fi
+              done
+            }
+            pick Inter-Regular regular
+            pick Inter-SemiBold semibold
+            if ! ls "$F"/regular.* >/dev/null 2>&1 && [ -f /tmp/f/InterVariable.ttf ]; then
+              cp /tmp/f/InterVariable.ttf "$F/regular.ttf"
+            fi
+            [ -f /tmp/f/LICENSE.txt ] && cp /tmp/f/LICENSE.txt "$F/LICENSE-Inter.txt"
+          fi
+          ls -la "$F"
+          exit 0
+
       - name: Prepare signing key
         env:
           KEYSTORE_B64: ${{ secrets.KEYSTORE_BASE64 }}
@@ -42,6 +68,12 @@ jobs:
           KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
           KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
         run: gradle assembleRelease --stacktrace
+
+      - name: Print signing certificate
+        continue-on-error: true
+        run: |
+          BT="$ANDROID_HOME/build-tools/$(ls "$ANDROID_HOME/build-tools" | sort -V | tail -1)"
+          "$BT/apksigner" verify --print-certs app/build/outputs/apk/release/app-release.apk
 
       - uses: actions/upload-artifact@v4
         with:

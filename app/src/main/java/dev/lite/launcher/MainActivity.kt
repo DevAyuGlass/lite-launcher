@@ -4,6 +4,8 @@ import android.app.Activity
 import android.app.ActivityManager
 import android.app.ActivityOptions
 import android.app.AlertDialog
+import android.app.admin.DeviceAdminReceiver
+import android.app.admin.DevicePolicyManager
 import android.content.ComponentCallbacks2
 import android.content.ComponentName
 import android.content.Intent
@@ -61,6 +63,7 @@ private const val LIST_ICON_DP = 40              // размер иконок в
 private const val ICON_CACHE_BYTES = 3 * 1024 * 1024
 private const val AUTO_KEYBOARD = false          // клавиатура сразу при открытии списка
 private const val EXTRA_GESTURES = true          // вниз = шторка, влево = камера, вправо = звонилка
+private const val DOUBLE_TAP_LOCK = true        // двойной тап по пустому месту = блокировка экрана
 
 private const val FAV = "fav"
 private const val DOCK = "dock"
@@ -75,6 +78,9 @@ class AppEntry(val label: String, val component: ComponentName, val user: UserHa
     val pkg: String get() = component.packageName
     val key: String = component.flattenToString() + "|" + user
 }
+
+// Пустой приёмник: он нужен системе, чтобы выдать право lockNow(). Ничего не запускает.
+class AdminReceiver : DeviceAdminReceiver()
 
 private class RowHolder(val icon: ImageView, val label: TextView)
 
@@ -270,7 +276,19 @@ class MainActivity : Activity() {
         }
         home.addView(emptyHint)
 
-        home.addView(View(this), LinearLayout.LayoutParams(match, 0, 1f)) // распорка
+        // Пустое место между сеткой и доком; двойной тап здесь блокирует экран
+        val spacer = View(this)
+        if (DOUBLE_TAP_LOCK) {
+            val tap = GestureDetector(this, object : GestureDetector.SimpleOnGestureListener() {
+                override fun onDown(e: MotionEvent): Boolean = true
+                override fun onDoubleTap(e: MotionEvent): Boolean {
+                    lockScreen()
+                    return true
+                }
+            })
+            spacer.setOnTouchListener { _, ev -> tap.onTouchEvent(ev); true }
+        }
+        home.addView(spacer, LinearLayout.LayoutParams(match, 0, 1f))
 
         val pill = tv("Поиск", 15f, C_GRAY).apply {
             background = rounded(C_CARD, dp(18))
@@ -538,6 +556,24 @@ class MainActivity : Activity() {
     private fun startSafe(i: Intent) {
         try {
             startActivity(i)
+        } catch (e: Exception) {
+        }
+    }
+
+    // Первый двойной тап откроет системный запрос на права администратора устройства
+    private fun lockScreen() {
+        try {
+            val dpm = getSystemService(DevicePolicyManager::class.java)
+            val admin = ComponentName(this, AdminReceiver::class.java)
+            if (dpm.isAdminActive(admin)) {
+                dpm.lockNow()
+            } else {
+                startActivity(
+                    Intent(DevicePolicyManager.ACTION_ADD_DEVICE_ADMIN)
+                        .putExtra(DevicePolicyManager.EXTRA_DEVICE_ADMIN, admin)
+                        .putExtra(DevicePolicyManager.EXTRA_ADD_EXPLANATION, "Нужно только для блокировки экрана двойным тапом")
+                )
+            }
         } catch (e: Exception) {
         }
     }
